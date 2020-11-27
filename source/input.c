@@ -277,11 +277,14 @@ int input_init(
    */
 
   char * const target_namestrings[] = {"100*theta_s","Omega_dcdmdr","omega_dcdmdr",
-                                       "Omega_scf","Omega_ini_dcdm","omega_ini_dcdm","sigma8"};
+                                       "Omega_scf","Omega_ini_dcdm","omega_ini_dcdm","sigma8",
+                                       "Omega_cdm","omega_cdm"};
   char * const unknown_namestrings[] = {"h","Omega_ini_dcdm","Omega_ini_dcdm",
-                                        "scf_shooting_parameter","Omega_dcdmdr","omega_dcdmdr","A_s"};
+                                        "scf_shooting_parameter","Omega_dcdmdr","omega_dcdmdr","A_s",
+                                        "Omega_ini_cdm","Omega_ini_cdm"};
   enum computation_stage target_cs[] = {cs_thermodynamics, cs_background, cs_background,
-                                        cs_background, cs_background, cs_background, cs_nonlinear};
+                                        cs_background, cs_background, cs_background, cs_nonlinear,
+                                        cs_background,cs_background};
 
   int input_verbose = 0, int1, aux_flag, shooting_failed=_FALSE_;
 
@@ -909,6 +912,21 @@ int input_read_parameters(
   if ((ppt->gauge == synchronous) && (pba->Omega0_cdm==0)) pba->Omega0_cdm = ppr->Omega0_cdm_min_synchronous;
 
   Omega_tot += pba->Omega0_cdm;
+
+  /** - Read Omega_ini_cdm or omega_ini_cdm */
+  class_call(parser_read_double(pfc,"Omega_ini_cdm",&param1,&flag1,errmsg),
+             errmsg,
+             errmsg);
+  class_call(parser_read_double(pfc,"omega_ini_cdm",&param2,&flag2,errmsg),
+             errmsg,
+             errmsg);
+  class_test(((flag1 == _TRUE_) && (flag2 == _TRUE_)),
+             errmsg,
+             "In input file, you can only enter one of Omega_ini_cdm or omega_ini_cdm, choose one");
+  if (flag1 == _TRUE_)
+    pba->Omega_ini_cdm = param1;
+  if (flag2 == _TRUE_)
+    pba->Omega_ini_cdm = param2/pba->h/pba->h;
 
   /** - Omega_0_icdm_dr (DM interacting with DR) */
   class_call(parser_read_double(pfc,"Omega_idm_dr",&param1,&flag1,errmsg),
@@ -3654,7 +3672,7 @@ int input_try_unknown_parameters(double * unknown_parameter,
   struct output op;           /* for output files */
 
   int i;
-  double rho_dcdm_today, rho_dr_today;
+  double rho_dcdm_today, rho_dr_today,rho_cdm_today;
   struct fzerofun_workspace * pfzw;
   int input_verbose;
   int flag;
@@ -3850,6 +3868,16 @@ int input_try_unknown_parameters(double * unknown_parameter,
     case sigma8:
       output[i] = nl.sigma8[nl.index_pk_m]-pfzw->target_value[i];
       break;
+    case Omega_cdm:
+       rho_cdm_today = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_cdm];
+       output[i] = (rho_cdm_today)/(ba.H0*ba.H0)-pfzw->target_value[i];
+       /** printf("output[%i] = %.5g. target_value = %e.\n",i,output[i],pfzw->target_value[i]); */
+       break;
+     case omega_cdm:
+       rho_cdm_today = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_cdm];
+       output[i] = (rho_cdm_today)/(ba.H0*ba.H0)-pfzw->target_value[i]/ba.h/ba.h;
+       /** printf("output[%i] = %.5g. target_value = %e.\n",i,output[i],pfzw->target_value[i]/ba.h/ba.h); */
+       break;
     }
   }
 
@@ -4037,6 +4065,17 @@ int input_get_guess(double *xguess,
       xguess[index_guess] = 2.43e-9/0.87659*pfzw->target_value[index_guess];
       dxdy[index_guess] = 2.43e-9/0.87659;
       break;
+
+    case Omega_cdm:
+      xguess[index_guess] = pfzw->target_value[index_guess];
+      dxdy[index_guess] = 1.0;
+      // printf("x = Omega_ini_guess = %g, dxdy = %g\n",xguess[index_guess],dxdy[index_guess]);
+      break;
+    case omega_cdm:
+      xguess[index_guess] = pfzw->target_value[index_guess]/ba.h/ba.h;
+      dxdy[index_guess] = 0.1;//1./ba.h/ba.h;
+      /** printf("x = Omega_ini_guess = %g, dxdy = %g\n",xguess[index_guess],dxdy[index_guess]); */
+      break;
     }
     //printf("xguess = %g\n",xguess[index_guess]);
   }
@@ -4156,6 +4195,8 @@ int input_auxillary_target_conditions(struct file_content * pfc,
   case Omega_scf:
   case Omega_ini_dcdm:
   case omega_ini_dcdm:
+  case Omega_cdm:
+  case omega_cdm:
     /* Check that Omega's or omega's are nonzero: */
     if (target_value == 0.)
       *aux_flag = _FALSE_;
